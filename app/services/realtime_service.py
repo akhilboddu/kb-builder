@@ -3,9 +3,115 @@ import uuid
 from app.core.database import supabase_client
 from app.models.chat import Message, MessageCreate, HandoverRequest, ConversationStatus
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable, Optional
+import asyncio
 
 logger = logging.getLogger(__name__)
+
+# Dictionary to store active channel subscriptions
+_active_subscriptions = {}
+
+async def subscribe_to_conversation(conversation_id: str, callback: Callable[[Dict[str, Any]], None]) -> str:
+    """
+    Subscribe to a conversation's realtime updates.
+    
+    Args:
+        conversation_id: The ID of the conversation to subscribe to
+        callback: Function to call when a message is received
+        
+    Returns:
+        The subscription ID
+    """
+    try:
+        channel_name = f"conversation:{conversation_id}"
+        
+        # Create subscription
+        subscription = supabase_client.channel(channel_name)
+        
+        # Add listeners for messages
+        subscription.on(
+            "postgres_changes",
+            event="INSERT",
+            schema="public",
+            table="messages",
+            filter=f"conversation_id=eq.{conversation_id}",
+            callback=lambda payload: callback(payload.new)
+        )
+        
+        # Subscribe to the channel
+        subscription.subscribe()
+        
+        # Store the subscription
+        subscription_id = str(uuid.uuid4())
+        _active_subscriptions[subscription_id] = subscription
+        
+        logger.info(f"Subscribed to conversation {conversation_id} with subscription ID {subscription_id}")
+        return subscription_id
+        
+    except Exception as e:
+        logger.error(f"Error subscribing to conversation: {str(e)}")
+        raise
+
+async def unsubscribe(subscription_id: str) -> bool:
+    """
+    Unsubscribe from a realtime subscription.
+    
+    Args:
+        subscription_id: The ID of the subscription to remove
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        if subscription_id in _active_subscriptions:
+            subscription = _active_subscriptions[subscription_id]
+            
+            # Unsubscribe from the channel
+            subscription.unsubscribe()
+            
+            # Remove from active subscriptions
+            del _active_subscriptions[subscription_id]
+            
+            logger.info(f"Unsubscribed from subscription ID {subscription_id}")
+            return True
+        else:
+            logger.warning(f"Subscription ID {subscription_id} not found")
+            return False
+    except Exception as e:
+        logger.error(f"Error unsubscribing: {str(e)}")
+        return False
+
+async def broadcast_typing_indicator(conversation_id: str, is_typing: bool, user_id: str) -> bool:
+    """
+    Broadcast typing indicator to a conversation channel.
+    
+    Args:
+        conversation_id: The ID of the conversation
+        is_typing: Whether the user is typing
+        user_id: The ID of the user who is typing
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        channel_name = f"conversation:{conversation_id}"
+        
+        # Broadcast typing event
+        supabase_client.channel(channel_name).send({
+            "type": "broadcast",
+            "event": "typing",
+            "payload": {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "is_typing": is_typing,
+                "timestamp": datetime.now().isoformat()
+            }
+        })
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error broadcasting typing indicator: {str(e)}")
+        return False
 
 async def save_message(message: MessageCreate) -> Message:
     """
@@ -56,6 +162,21 @@ async def save_message(message: MessageCreate) -> Message:
             citations=message.citations,
             confidence_score=message.confidence_score
         )
+        
+        # Broadcast message to realtime channel (the insert trigger will handle this automatically)
+        # But we can also explicitly broadcast an event for clients not using Postgres changes
+        try:
+            channel_name = f"conversation:{message.conversation_id}"
+            supabase_client.channel(channel_name).send({
+                "type": "broadcast",
+                "event": "new_message",
+                "payload": {
+                    "message": message_data
+                }
+            })
+        except Exception as e:
+            # Log but don't fail the message save if broadcasting fails
+            logger.warning(f"Failed to broadcast message: {str(e)}")
         
         return saved_message
     except Exception as e:

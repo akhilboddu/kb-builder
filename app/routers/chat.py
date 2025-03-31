@@ -10,7 +10,7 @@ from app.models.user import User
 from app.core.dependencies import get_current_user, validate_bot_access
 from app.core.database import supabase_client
 from app.services.rag_service import query_bot
-from app.services.realtime_service import save_message, handle_handover, assign_conversation, close_conversation
+from app.services.realtime_service import save_message, handle_handover, assign_conversation, close_conversation, broadcast_typing_indicator
 from datetime import datetime
 
 router = APIRouter()
@@ -447,4 +447,102 @@ async def close_conversation_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to close conversation"
+        )
+
+@router.post("/subscribe")
+async def subscribe_to_conversation_endpoint(
+    conversation_id: str,
+    callback_url: str,
+    user: User = Depends(get_current_user)
+):
+    """
+    Create a subscription to receive realtime updates for a conversation.
+    
+    The callback_url is used to identify the client-side callback that will handle 
+    the realtime events. The actual callback handling must be implemented on the client.
+    """
+    try:
+        # Get conversation to verify access
+        conv_response = supabase_client.table("conversations").select("*").eq("id", conversation_id).execute()
+        
+        if not conv_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found"
+            )
+            
+        conversation = conv_response.data[0]
+        bot_id = conversation["bot_id"]
+        
+        # Verify bot access
+        await validate_bot_access(bot_id, user)
+        
+        # Return subscription info
+        return {
+            "conversation_id": conversation_id,
+            "channel": f"conversation:{conversation_id}",
+            "subscription_info": {
+                "schema": "public",
+                "table": "messages",
+                "filter": f"conversation_id=eq.{conversation_id}"
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating subscription: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create subscription"
+        )
+
+@router.post("/typing")
+async def send_typing_indicator(
+    conversation_id: str,
+    is_typing: bool,
+    user: User = Depends(get_current_user)
+):
+    """
+    Send a typing indicator for a conversation.
+    """
+    try:
+        # Get conversation to verify access
+        conv_response = supabase_client.table("conversations").select("*").eq("id", conversation_id).execute()
+        
+        if not conv_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found"
+            )
+            
+        conversation = conv_response.data[0]
+        bot_id = conversation["bot_id"]
+        
+        # Verify bot access
+        await validate_bot_access(bot_id, user)
+        
+        # Check if conversation is closed
+        if conversation["status"] == ConversationStatus.CLOSED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot send typing indicator to a closed conversation"
+            )
+            
+        # Send typing indicator
+        success = await broadcast_typing_indicator(conversation_id, is_typing, user.id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send typing indicator"
+            )
+            
+        return {"status": "success", "is_typing": is_typing}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending typing indicator: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send typing indicator"
         )
