@@ -2,6 +2,7 @@ import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 from dotenv import load_dotenv
+from pydantic import field_validator
 
 # Load environment variables from .env file
 load_dotenv()
@@ -24,6 +25,14 @@ class Settings(BaseSettings):
     # File Upload Settings
     MAX_UPLOAD_SIZE_MB: int = 10
     ALLOWED_EXTENSIONS: List[str] = ["pdf"]
+    
+    # Parse ALLOWED_EXTENSIONS from env if it's a simple string
+    @field_validator('ALLOWED_EXTENSIONS', mode='before')
+    def parse_allowed_extensions(cls, v):
+        if isinstance(v, str) and not v.startswith('['):
+            # If it's a simple string like "pdf", convert to list
+            return [ext.strip() for ext in v.split(',')]
+        return v
     
     # RAG Settings
     MAX_CHUNK_SIZE: int = 1000
