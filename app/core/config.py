@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     DEFAULT_RETRIEVAL_COUNT: int = 5
     DEFAULT_HANDOVER_THRESHOLD: float = 0.7
     
+    # Vector DB Settings
+    CHROMA_PERSIST_DIRECTORY: str = "./chromadb"
+    
     # Embedding Model Settings
     EMBEDDING_MODEL: str = "text-embedding-3-large"
     EMBEDDING_DIMENSIONS: int = 1536

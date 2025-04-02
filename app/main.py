@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import dotenv
 from datetime import datetime
 from .api.routes import crawl, documents, knowledge_base
-from .api.routes.knowledge_base import search as kb_search
 from .db.document_repository import create_tables
 from .models.knowledge_base import KnowledgeBaseStats
 

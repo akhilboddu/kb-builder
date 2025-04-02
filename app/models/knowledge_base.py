@@ -75,8 +75,38 @@ class DocumentCreate(BaseModel):
     title: str
     source_url: Optional[HttpUrl] = None
     
+class SearchRequest(BaseModel):
+    """Request model for search operations."""
+    query: str
+    limit: int = 10
+    filters: Optional[Dict[str, Any]] = None
+
 class SearchResult(BaseModel):
     """Search result model"""
-    text: str
+    id: str
+    content: str
     metadata: Dict[str, Any]
     score: float
+    source: Optional[str] = None
+
+class SearchResponse(BaseModel):
+    """Search response model"""
+    query: str
+    results: List[SearchResult]
+    count: int
+
+class KnowledgeBaseStats(BaseModel):
+    """Knowledge base statistics model"""
+    total_documents: int = 0
+    total_entries: int = 0
+    total_pages: int = 0
+    total_chunks: int = 0
+    by_source: Dict[str, int] = Field(default_factory=dict)
+    by_category: Dict[str, int] = Field(default_factory=dict)
+    knowledge_bases: Dict[str, int] = Field(default_factory=dict)
+    last_updated: datetime = Field(default_factory=datetime.now)
+
+class ReindexResponse(BaseModel):
+    """Response model for reindex operation"""
+    status: str
+    message: str

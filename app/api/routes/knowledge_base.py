@@ -8,11 +8,11 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.models.knowledge_base import (
-    SearchRequest, 
     SearchResponse, 
     KnowledgeBaseStats,
     ReindexResponse,
-    SearchResult
+    SearchResult,
+    SearchRequest
 )
 from app.services.knowledge_base import search_knowledge_base, get_stats, reindex_kb, export_kb, get_kb_service, get_entry, list_entries
 from app.services.knowledge_base import KnowledgeBaseService, delete_entry
@@ -181,7 +181,7 @@ async def list_knowledge_base_entries(
             filters["source"] = filter_source
         if knowledge_base_id:
             filters["knowledge_base_id"] = knowledge_base_id
-            logger.info(f"Filtering entries by knowledge_base_id: {knowledge_base_id}")
+            logger.info(f"Filtering entries by knowledge_base_id: '{knowledge_base_id}'")
             
         logger.info(f"Listing knowledge base entries with limit={limit}, offset={offset}, filters={filters}")
             
@@ -198,6 +198,8 @@ async def list_knowledge_base_entries(
         # Log first entry's metadata for debugging
         if entries and len(entries) > 0 and "metadata" in entries[0]:
             logger.info(f"First entry metadata: {entries[0]['metadata']}")
+            if "knowledge_base_id" in entries[0]["metadata"]:
+                logger.info(f"First entry knowledge_base_id: '{entries[0]['metadata']['knowledge_base_id']}'")
         
         # Add debug information if requested
         if debug:
